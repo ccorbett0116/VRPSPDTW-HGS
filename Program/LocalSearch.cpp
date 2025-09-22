@@ -100,7 +100,7 @@ static inline void LS_logMove(const char* name,
 
 // =================== Segment primitives (TW + SPDTW) ===================
 // Each TWSPD_Seg summarizes a contiguous customer block in forward order.
-// We also maintain per-route O(m^2) caches of forward blocks [i..j] and
+// Also maintain per-route O(m^2) caches of forward blocks [i..j] and
 // their reversed counterpart reverse([i..j]) to get true O(1) move evals
 // even for reversal moves (2-opt intra).
 
@@ -1015,7 +1015,7 @@ inline void LocalSearch::swapSingletonsSafe(Node* a, Node* b)
     bool adjacent = (a->next == b) || (b->next == a);
 
     if (adjacent) {
-        // For adjacent nodes, we need a simple reversal operation
+        // For adjacent nodes, need a simple reversal operation
         Node* first = (a->next == b) ? a : b;
         Node* second = (a->next == b) ? b : a;
 
@@ -1280,7 +1280,7 @@ bool LocalSearch::move6()
 
     // --- Apply the actual move on linked structure ---
     // Insert semantics assumed: insertNode(A, B) inserts A immediately AFTER B.
-    // We want [V,Y] to appear where [U,X] was, and [U,X] where [V,Y] was.
+    // Want [V,Y] to appear where [U,X] was, and [U,X] where [V,Y] was.
     Node* Uprev = nodeU->prev; // anchor before U in routeU
     Node* Vprev = nodeV->prev; // anchor before V in routeV
 
@@ -1577,7 +1577,7 @@ inline void LocalSearch::insertNode(Node* U, Node* V)
     if (up) up->next = un;
     if (un) un->prev = up;
 
-    // If we’re removing from an old route, decrement its count
+    // If removing from an old route, decrement its count
     if (oldRoute && oldRoute != newRoute) {
         oldRoute->nbCustomers--;
     }
@@ -1708,7 +1708,7 @@ void LocalSearch::loadIndividual(const Individual& indiv)
         }
 
         // Close the ring: last customer -> depot
-        if (prev != R.depot) {  // Only if we added customers
+        if (prev != R.depot) {  // Only if added customers
             prev->next = R.depot;
             R.depot->prev = prev;
         }
