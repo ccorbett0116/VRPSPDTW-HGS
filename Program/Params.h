@@ -86,7 +86,7 @@ public:
 	std::vector<double> dueTime;         // Latest arrival times (upper bounds)
 	std::vector<std::vector<double>> timeMatrix; // Travel times
 	std::vector<double> serviceTime;     // Service durations
-	double penaltyMultiplier = 1.0;      // Time warp penalty weight
+	double penaltyMultiplier = 10.0;      // Time warp penalty weight
 	std::vector<double> pickups;
 	double dispatchingCost;			// Fixed cost per vehicle used
 	double unitCost;				// Cost per unit distance traveled

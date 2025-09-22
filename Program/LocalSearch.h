@@ -155,6 +155,7 @@ private:
     double loadU, loadX, loadV, loadY;
     double serviceU, serviceX, serviceV, serviceY;
     double penaltyCapacityLS, penaltyDurationLS;
+    double penaltyTimeWarpLS;
     bool intraRouteMove;
 
     // --- Legacy helpers (kept) ---
@@ -226,7 +227,7 @@ private:
     void validateAllRoutes(const char *where) const;
 
 public:
-    void run(Individual & indiv, double penaltyCapacityLS, double penaltyDurationLS);
+    void run(Individual &indiv, double penaltyCapacityLS, double penaltyDurationLS, double penaltyTimeWarpLS);
     void loadIndividual(const Individual & indiv);
     void exportIndividual(Individual & indiv);
     LocalSearch(Params & params);

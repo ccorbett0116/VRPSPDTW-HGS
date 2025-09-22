@@ -7,11 +7,11 @@ void Population::generatePopulation()
 	{
 		Individual randomIndiv(params);
 		split.generalSplit(randomIndiv, params.nbVehicles);
-		localSearch.run(randomIndiv, params.penaltyCapacity, params.penaltyDuration);
+		localSearch.run(randomIndiv, params.penaltyCapacity, params.penaltyDuration, params.penaltyMultiplier);
 		addIndividual(randomIndiv, true);
 		if (!randomIndiv.eval.isFeasible && params.ran() % 2 == 0)  // Repair half of the solutions in case of infeasibility
 		{
-			localSearch.run(randomIndiv, params.penaltyCapacity*10., params.penaltyDuration*10.);
+			localSearch.run(randomIndiv, params.penaltyCapacity*10., params.penaltyDuration*10., params.penaltyMultiplier*10.0);
 			if (randomIndiv.eval.isFeasible) addIndividual(randomIndiv, false);
 		}
 		std::cout << "Population size: Feasible = " << feasibleSubpop.size() << ", Infeasible = " << infeasibleSubpop.size() << "\r" << std::flush;

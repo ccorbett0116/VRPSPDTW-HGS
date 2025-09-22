@@ -80,7 +80,7 @@ static inline void LS_logMove(const char* name,
                               const Node* V, const Node* Y,
                               double oldSum, double newSum)
 {
-    if (LS_move_counter%100==0) {
+    if (LS_move_counter%1000==0) {
         std::cerr << "[LS][" << std::setw(6) << LS_move_counter << "] "
                   << name
                   << "  Δ=" << (newSum - oldSum)
@@ -194,7 +194,7 @@ static inline TWSPD_Seg simulateExactSegment(const std::vector<int>& customers, 
 }
 
 
-static inline double route_cost_from_seg(const Params& P, const TWSPD_Seg& S)
+static inline double route_cost_from_seg(const Params& P, const TWSPD_Seg& S, double penaltyCapacity, double penaltyDuration, double penaltyTimeWarp)
 {
     if (S.len == 0) return 0.0;  // empty route: cost 0, no dispatching
 
@@ -223,9 +223,9 @@ static inline double route_cost_from_seg(const Params& P, const TWSPD_Seg& S)
     // Penalized cost (dispatching cost once per non-empty route)
     return  P.unitCost        * dist
           + P.dispatchingCost * 1.0   // one dispatch per non-empty route
-          + P.penaltyCapacity * capExc
-          + P.penaltyDuration * durExc
-          + P.penaltyMultiplier * warp;
+          + penaltyCapacity * capExc
+          + penaltyDuration * durExc
+          + penaltyTimeWarp * warp;
 }
 
 
@@ -245,6 +245,7 @@ LocalSearch::LocalSearch(Params& P)
       serviceU(0.0), serviceV(0.0), serviceX(0.0), serviceY(0.0),
       penaltyCapacityLS(P.penaltyCapacity),
       penaltyDurationLS(P.penaltyDuration),
+      penaltyTimeWarpLS(P.penaltyMultiplier),
       intraRouteMove(false)
 {
     // 1) Routes & depot nodes
@@ -543,7 +544,7 @@ void LocalSearch::updateRouteData(Route* R)
         RSUF[i] = rangeRev[r][idx2D(m, i, m - 1)];
     }
 
-    R->routeCost = route_cost_from_seg(params, PREF[m-1]);
+    R->routeCost = route_cost_from_seg(params, PREF[m-1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     R->whenLastModified = nbMoves;
 
     // Memory cleanup: shrink temp vector if it grew too large
@@ -685,10 +686,11 @@ void LocalSearch::validateAllRoutes(const char* where) const {
 }
 
 
-void LocalSearch::run(Individual & indiv, double penaltyCapacityLS, double penaltyDurationLS)
+void LocalSearch::run(Individual & indiv, double penaltyCapacityLS, double penaltyDurationLS, double penaltyTimeWarpLS)
 {
     this->penaltyCapacityLS = penaltyCapacityLS;
     this->penaltyDurationLS = penaltyDurationLS;
+    this->penaltyTimeWarpLS = penaltyTimeWarpLS;
 
     loadIndividual(indiv);
 
@@ -785,8 +787,11 @@ void LocalSearch::run(Individual & indiv, double penaltyCapacityLS, double penal
             }
         }
     }
-
     exportIndividual(indiv);
+    if (loopID == 0 || nbMoves > 0) {
+        std::cerr << "LS finished after " << loopID << " loops and "
+                  << nbMoves << " moves. Final cost: " << totalSolutionCost << "\n";
+    }
 }
 
 void LocalSearch::setLocalVariablesRouteU()
@@ -831,8 +836,8 @@ bool LocalSearch::move1()
     const double oldTotalCost = totalSolutionCost;
 
     // 🔑 O(1) old costs from prefix segments
-    double oldCostU = route_cost_from_seg(params, prefSeg[routeU->cour][routeU->nbCustomers - 1]);
-    double oldCostV = route_cost_from_seg(params, prefSeg[routeV->cour][routeV->nbCustomers - 1]);
+    double oldCostU = route_cost_from_seg(params, prefSeg[routeU->cour][routeU->nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    double oldCostV = route_cost_from_seg(params, prefSeg[routeV->cour][routeV->nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     // Build sequences after move
     std::vector<int> seqU, seqV;
@@ -854,8 +859,8 @@ bool LocalSearch::move1()
     const TWSPD_Seg TU_after = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV_after = simulateExactSegment(newSeqV, params);
 
-    double newCostU = route_cost_from_seg(params, TU_after);
-    double newCostV = route_cost_from_seg(params, TV_after);
+    double newCostU = route_cost_from_seg(params, TU_after, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    double newCostV = route_cost_from_seg(params, TV_after, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     double predictedNewCost = oldTotalCost - oldCostU - oldCostV + newCostU + newCostV;
     if (predictedNewCost >= oldTotalCost) return false;
@@ -892,7 +897,7 @@ bool LocalSearch::move2()
     // Helper to fetch current cost safely
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldU = curCost(routeU);
     const double oldV = curCost(routeV);
@@ -916,8 +921,8 @@ bool LocalSearch::move2()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     const double newTotalCost = oldTotalCost - oldU - oldV + newRouteCostU + newRouteCostV;
 
@@ -954,7 +959,7 @@ bool LocalSearch::move3()
     // Fetch old costs from prefSeg (avoid stale routeCost)
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldU = curCost(routeU);
     const double oldV = curCost(routeV);
@@ -978,8 +983,8 @@ bool LocalSearch::move3()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     const double newTotalCost = oldTotalCost - oldU - oldV + newRouteCostU + newRouteCostV;
 
@@ -1096,7 +1101,7 @@ bool LocalSearch::move4()
     // Compute "old" costs from prefSeg (avoid stale route->routeCost)
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
 
     const double oldU = curCost(routeU);
@@ -1111,7 +1116,7 @@ bool LocalSearch::move4()
         std::swap(newSeq[posU], newSeq[posV]);
 
         const TWSPD_Seg T = simulateExactSegment(newSeq, params);
-        const double newRouteCost = route_cost_from_seg(params, T);
+        const double newRouteCost = route_cost_from_seg(params, T, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
         newTotalCost = oldTotalCost - oldU + newRouteCost;
         if (newTotalCost >= oldTotalCost) return false;
@@ -1141,8 +1146,8 @@ bool LocalSearch::move4()
         const TWSPD_Seg TU = simulateExactSegment(newSeqU, params);
         const TWSPD_Seg TV = simulateExactSegment(newSeqV, params);
 
-        const double newRouteCostU = route_cost_from_seg(params, TU);
-        const double newRouteCostV = route_cost_from_seg(params, TV);
+        const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+        const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
         newTotalCost = oldTotalCost - oldU - oldV + newRouteCostU + newRouteCostV;
         if (newTotalCost >= oldTotalCost) return false;
@@ -1174,7 +1179,7 @@ bool LocalSearch::move5()
     // Safe old costs from prefSeg
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldU = curCost(routeU);
     const double oldV = curCost(routeV);
@@ -1204,8 +1209,8 @@ bool LocalSearch::move5()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     const double newTotalCost = oldTotalCost - oldU - oldV + newRouteCostU + newRouteCostV;
     if (newTotalCost >= oldTotalCost) return false;
@@ -1242,7 +1247,7 @@ bool LocalSearch::move6()
     // Current route costs from segment caches (avoid stale route->routeCost)
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldUcost = curCost(routeU);
     const double oldVcost = curCost(routeV);
@@ -1270,8 +1275,8 @@ bool LocalSearch::move6()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = newSeqV.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     const double predictedNewTotal =
         oldTotalCost - oldUcost - oldVcost + newRouteCostU + newRouteCostV;
@@ -1325,7 +1330,7 @@ bool LocalSearch::move7()
     // Safe old cost from prefSeg
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldCostU = curCost(routeU);
 
@@ -1340,7 +1345,7 @@ bool LocalSearch::move7()
     newSeq.insert(newSeq.end(), seq.begin() + posV + 1, seq.end());                  // suffix
 
     const TWSPD_Seg newSeg = simulateExactSegment(newSeq, params);
-    const double newRouteCost = route_cost_from_seg(params, newSeg);
+    const double newRouteCost = route_cost_from_seg(params, newSeg, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     const double newTotalCost = oldTotalCost - oldCostU + newRouteCost;
 
     if (newTotalCost >= oldTotalCost) return false;
@@ -1411,7 +1416,7 @@ bool LocalSearch::move8()
     // Old route costs from prefSeg (O(1), avoids stale routeCost)
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldCostU = curCost(routeU);
     const double oldCostV = curCost(routeV);
@@ -1432,8 +1437,8 @@ bool LocalSearch::move8()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = newSeqV.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
     const double newTotalCost = oldTotalCost - oldCostU - oldCostV + newRouteCostU + newRouteCostV;
     if (newTotalCost >= oldTotalCost) return false;
@@ -1490,7 +1495,7 @@ bool LocalSearch::move9()
     // Safe old costs from prefSeg
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
     const double oldCostU = curCost(routeU);
     const double oldCostV = curCost(routeV);
@@ -1511,8 +1516,8 @@ bool LocalSearch::move9()
     const TWSPD_Seg TU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
     const TWSPD_Seg TV = newSeqV.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqV, params);
 
-    const double newRouteCostU = route_cost_from_seg(params, TU);
-    const double newRouteCostV = route_cost_from_seg(params, TV);
+    const double newRouteCostU = route_cost_from_seg(params, TU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+    const double newRouteCostV = route_cost_from_seg(params, TV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     const double newTotalCost = oldTotalCost - oldCostU - oldCostV + newRouteCostU + newRouteCostV;
 
     if (newTotalCost >= oldTotalCost) return false;
@@ -1657,19 +1662,6 @@ void LocalSearch::loadIndividual(const Individual& indiv)
         if (indiv.chromR[r].empty()) emptyRoutes.insert(r);
     }
 
-    // Check for duplicate customers across all routes
-    std::vector<bool> customerAssigned(params.nbClients + 1, false);
-    for (int r = 0; r < params.nbVehicles; ++r) {
-        for (int customer : indiv.chromR[r]) {
-            if (customerAssigned[customer]) {
-                std::cerr << "ERROR: Customer " << customer
-                          << " appears in multiple routes!" << std::endl;
-                throw std::runtime_error("Duplicate customer in individual");
-            }
-            customerAssigned[customer] = true;
-        }
-    }
-
     // Link customer nodes according to chromR
     for (int r = 0; r < params.nbVehicles; ++r) {
         Route& R = routes[r];
@@ -1678,15 +1670,6 @@ void LocalSearch::loadIndividual(const Individual& indiv)
         const auto& routeSeq = indiv.chromR[r];
         for (int idx = 0; idx < (int)routeSeq.size(); ++idx) {
             int c = routeSeq[idx];
-
-            // Bounds check
-            if (c <= 0 || c > params.nbClients) {
-                std::ostringstream oss;
-                oss << "Invalid customer id " << c
-                    << " on route " << r << " (nbClients=" << params.nbClients << ")";
-                throw std::runtime_error(oss.str());
-            }
-
             Node* n = &clients[c];
 
             // CRITICAL FIX: Ensure node is completely detached before reusing
@@ -1732,10 +1715,8 @@ void LocalSearch::exportIndividual(Individual& indiv)
             n = n->next;
         }
     }
-    // Note: Don't call evaluateCompleteCost here - let caller do it
 }
 
-// SWAP* operator (kept as in Vidal’s, if coords available)
 // ======================= SWAP* OPERATOR =======================
 // Full SWAP* (relocate + exchange) adapted from Vidal HGS-CVRP,
 // using segment concatenations (rangeFwd / rangeRev) for O(1) eval.
@@ -1744,7 +1725,7 @@ bool LocalSearch::swapStar()
 {
     auto curCost = [&](const Route* R) {
         if (!R || routes[R->cour].nbCustomers == 0) return 0.0;
-        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1]);
+        return route_cost_from_seg(params, prefSeg[R->cour][routes[R->cour].nbCustomers - 1], penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
     };
 
     for (int rU = 0; rU < params.nbVehicles; rU++)
@@ -1781,7 +1762,7 @@ bool LocalSearch::swapStar()
                 newSeqU.erase(newSeqU.begin() + posU);
 
                 const TWSPD_Seg newSegU = newSeqU.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqU, params);
-                const double newRouteCostU = route_cost_from_seg(params, newSegU);
+                const double newRouteCostU = route_cost_from_seg(params, newSegU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
                 // Try all insertion anchors V in RV (including depot to allow front insertion)
                 for (Node* V = RV->depot; ; V = V->next)
@@ -1795,7 +1776,7 @@ bool LocalSearch::swapStar()
                     newSeqV.insert(newSeqV.begin() + (posV + 1), U->cour);
 
                     const TWSPD_Seg newSegV = newSeqV.empty() ? TWSPD_Seg{} : simulateExactSegment(newSeqV, params);
-                    const double newRouteCostV = route_cost_from_seg(params, newSegV);
+                    const double newRouteCostV = route_cost_from_seg(params, newSegV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
                     const double newTotalCost =
                         totalSolutionCost - oldCostRU - oldCostRV + newRouteCostU + newRouteCostV;
@@ -1853,8 +1834,8 @@ bool LocalSearch::swapStar()
                     const TWSPD_Seg newSegU = simulateExactSegment(newSeqU, params);
                     const TWSPD_Seg newSegV = simulateExactSegment(newSeqV, params);
 
-                    const double newRouteCostU = route_cost_from_seg(params, newSegU);
-                    const double newRouteCostV = route_cost_from_seg(params, newSegV);
+                    const double newRouteCostU = route_cost_from_seg(params, newSegU, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
+                    const double newRouteCostV = route_cost_from_seg(params, newSegV, penaltyCapacityLS, penaltyDurationLS, penaltyTimeWarpLS);
 
                     const double newTotalCost =
                         totalSolutionCost - oldCostRU - oldCostRV + newRouteCostU + newRouteCostV;
