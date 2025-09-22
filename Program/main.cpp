@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 			cvrp.due_time,       // Upper bounds (due_time)
 			cvrp.dispatchingCost,
 			cvrp.unitCost,
-			commandline.nbVeh,
+			commandline.nbVeh, //cvrp.numVehicles, <-- This is the fix but dont apply until the LS is O(1 or m)
 			cvrp.isDurationConstraint,
 			commandline.verbose,
 			commandline.ap

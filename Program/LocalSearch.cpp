@@ -1702,20 +1702,39 @@ void LocalSearch::loadIndividual(const Individual& indiv)
 // Export LocalSearch routes back into an Individual
 void LocalSearch::exportIndividual(Individual& indiv)
 {
+    // routes → chromR
     indiv.chromR.clear();
     indiv.chromR.resize(params.nbVehicles);
 
-    for (int r = 0; r < params.nbVehicles; r++)
+    // clear adjacency (index 0 is depot)
+    std::fill(indiv.successors.begin(),   indiv.successors.end(),   0);
+    std::fill(indiv.predecessors.begin(), indiv.predecessors.end(), 0);
+
+    for (int r = 0; r < params.nbVehicles; ++r)
     {
         Route& R = routes[r];
-        Node* n = R.depot->next;
-        while (!n->isDepot)
+        Node* prev = R.depot;          // start at depot (0)
+        for (Node* n = R.depot->next; !n->isDepot; n = n->next)
         {
             indiv.chromR[r].push_back(n->cour);
-            n = n->next;
+
+            // prev -> n arc
+            indiv.successors[prev->cour]   = n->cour;
+            indiv.predecessors[n->cour]    = prev->cour;
+
+            prev = n;
+        }
+        // close route n_last -> depot
+        if (prev != R.depot)
+        {
+            indiv.successors[prev->cour] = 0;
+            // If you rely on depot predecessor for anything, you can set:
+            // indiv.predecessors[0] = prev->cour;   // optional
         }
     }
 }
+
+
 
 // ======================= SWAP* OPERATOR =======================
 // Full SWAP* (relocate + exchange) adapted from Vidal HGS-CVRP,

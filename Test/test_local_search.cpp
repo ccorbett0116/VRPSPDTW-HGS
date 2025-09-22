@@ -79,7 +79,7 @@ int main(int argc, char** argv)
 
     // Run Local Search (uses load -> run -> export)
     LocalSearch ls(P);                                // ctor
-    ls.run(indiv, P.penaltyCapacity, P.penaltyDuration);  // calls loadInside + search  :contentReference[oaicite:0]{index=0}
+    ls.run(indiv, P.penaltyCapacity, P.penaltyDuration, P.penaltyMultiplier);  // calls loadInside + search  :contentReference[oaicite:0]{index=0}
     ls.exportIndividual(indiv);                       // push improved routes back
 
     // Re-evaluate with *exact* VRPSPDTW cost (distance + warp + cap + dispatch)

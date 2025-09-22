@@ -239,15 +239,16 @@ void Population::printState(int nbIter, int nbIterNoImprovement)
 	}
 }
 
-double Population::brokenPairsDistance(const Individual & indiv1, const Individual & indiv2)
+double Population::brokenPairsDistance(const Individual & a, const Individual & b)
 {
-	int differences = 0;
-	for (int j = 1; j <= params.nbClients; j++)
+	int diff = 0;
+	for (int i = 1; i <= params.nbClients; ++i)
 	{
-		if (indiv1.successors[j] != indiv2.successors[j] && indiv1.successors[j] != indiv2.predecessors[j]) differences++;
-		if (indiv1.predecessors[j] == 0 && indiv2.predecessors[j] != 0 && indiv2.successors[j] != 0) differences++;
+		// Compare the outgoing arc (i -> succ[i]) including possible 0 (to depot)
+		if (a.successors[i] != b.successors[i]) ++diff;
 	}
-	return (double)differences / (double)params.nbClients;
+	// Normalized distance in [0,1]
+	return static_cast<double>(diff) / static_cast<double>(params.nbClients);
 }
 
 double Population::averageBrokenPairsDistanceClosest(const Individual & indiv, int nbClosest)
